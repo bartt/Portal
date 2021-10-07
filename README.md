@@ -93,7 +93,7 @@ Run `yarn ship` to publish new version of script.
 `yarn ship` is an alias for `npm publish`
 
 - Builds the script with latest code using `yarn build` (prePublish)
-- Publishes package on npm as `@tryghost/portal` and creates an unpkg link for script at https://unpkg.com/@tryghost/portal@VERSION
+- Publishes package on npm as `@the-code-mill/portal` and creates an unpkg link for script at https://unpkg.com/@the-code-mill/portal@VERSION
 
 (Core team only)
 
