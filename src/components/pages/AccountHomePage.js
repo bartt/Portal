@@ -3,20 +3,15 @@ import MemberAvatar from '../common/MemberGravatar';
 import ActionButton from '../common/ActionButton';
 import CloseButton from '../common/CloseButton';
 import Switch from '../common/Switch';
-import {getMemberSubscription, hasOnlyFreePlan, isComplimentaryMember} from '../../utils/helpers';
+import {allowCompMemberUpgrade, getCompExpiry, getMemberSubscription, getMemberTierName, getSiteNewsletters, getSupportAddress, getUpdatedOfferPrice, hasCommentsEnabled, hasMultipleNewsletters, hasMultipleProductsFeature, hasOnlyFreePlan, isComplimentaryMember, subscriptionHasFreeTrial} from '../../utils/helpers';
 import {getDateString} from '../../utils/date-time';
 import {ReactComponent as LoaderIcon} from '../../images/icons/loader.svg';
+import {ReactComponent as OfferTagIcon} from '../../images/icons/offer-tag.svg';
 import {useContext} from 'react';
 
 const React = require('react');
 
 export const AccountHomePageStyles = `
-    .gh-portal-account-main {
-        background: var(--grey13);
-        padding: 32px 32px 0;
-        max-height: calc(100vh - 12vw - 104px);
-    }
-
     .gh-portal-account-header {
         display: flex;
         flex-direction: column;
@@ -29,14 +24,11 @@ export const AccountHomePageStyles = `
     }
 
     .gh-portal-account-data {
-        margin-bottom: 32px;
+        margin-bottom: 40px;
     }
 
     footer.gh-portal-account-footer {
         display: flex;
-        padding: 32px;
-        height: 104px;
-        border-top: 1px solid #eaeaea;
     }
 
     .gh-portal-account-footer.paid {
@@ -45,6 +37,7 @@ export const AccountHomePageStyles = `
 
     .gh-portal-account-footermenu {
         display: flex;
+        align-items: center;
         list-style: none;
         padding: 0;
         margin: 0;
@@ -98,6 +91,43 @@ export const AccountHomePageStyles = `
         margin-right: 12px;
         border-radius: 2px;
     }
+
+    .gh-portal-account-discountcontainer {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .gh-portal-account-old-price {
+        text-decoration: line-through;
+        color: var(--grey9) !important;
+    }
+
+    .gh-portal-account-tagicon {
+        width: 16px;
+        height: 16px;
+        color: var(--brandcolor);
+        margin-right: 5px;
+        z-index: 999;
+    }
+
+    @media (max-width: 390px) {
+        .gh-portal-account-footer {
+            padding: 0 !important;
+        }
+    }
+
+    @media (max-width: 340px) {
+        .gh-portal-account-footer {
+            padding: 0 !important;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .gh-portal-account-footer .gh-portal-account-footerright {
+            justify-content: flex-start;
+        }
+    }
 `;
 
 const UserAvatar = ({avatar, brandColor}) => {
@@ -137,6 +167,40 @@ const UserHeader = () => {
     );
 };
 
+function getOfferLabel({offer, price, subscriptionStartDate}) {
+    let offerLabel = '';
+
+    if (offer) {
+        const discountDuration = offer.duration;
+        let durationLabel = '';
+        if (discountDuration === 'forever') {
+            durationLabel = `Forever`;
+        } else if (discountDuration === 'repeating') {
+            const durationInMonths = offer.duration_in_months || 0;
+            let offerStartDate = new Date(subscriptionStartDate);
+            let offerEndDate = new Date(offerStartDate.setMonth(offerStartDate.getMonth() + durationInMonths));
+            durationLabel = `Ends ${getDateString(offerEndDate)}`;
+        }
+        offerLabel = `${getUpdatedOfferPrice({offer, price, useFormatted: true})}/${price.interval}${durationLabel ? ` — ${durationLabel}` : ``}`;
+    }
+    return offerLabel;
+}
+
+function FreeTrialLabel({subscription, priceLabel}) {
+    if (subscriptionHasFreeTrial({sub: subscription})) {
+        const trialEnd = getDateString(subscription.trial_end_at);
+        return (
+            <p className="gh-portal-account-discountcontainer">
+                <div>
+                    <span>Free Trial – Ends {trialEnd}</span>
+                    {/* <span>{getSubFreeTrialDaysLeft({sub: subscription})} days left</span> */}
+                </div>
+            </p>
+        );
+    }
+    return null;
+}
+
 const PaidAccountActions = () => {
     const {member, site, onAction} = useContext(AppContext);
 
@@ -155,24 +219,69 @@ const PaidAccountActions = () => {
         }
     };
 
-    const PlanLabel = ({price, isComplimentary}) => {
+    const PlanLabel = ({price, isComplimentary, subscription}) => {
+        const {
+            offer,
+            start_date: startDate
+        } = subscription || {};
         let label = '';
         if (price) {
             const {amount = 0, currency, interval} = price;
             label = `${Intl.NumberFormat('en', {currency, style: 'currency'}).format(amount / 100)}/${interval}`;
         }
+        let offerLabelStr = getOfferLabel({price, offer, subscriptionStartDate: startDate});
+        const compExpiry = getCompExpiry({member});
         if (isComplimentary) {
-            label = label ? `Complimentary (${label})` : `Complimentary`;
+            if (compExpiry) {
+                label = `Complimentary - Expires ${compExpiry}`;
+            } else {
+                label = label ? `Complimentary (${label})` : `Complimentary`;
+            }
         }
+        let oldPriceClassName = '';
+        if (offerLabelStr) {
+            oldPriceClassName = 'gh-portal-account-old-price';
+        }
+        const OfferLabel = () => {
+            if (offerLabelStr) {
+                return (
+                    <p className="gh-portal-account-discountcontainer">
+                        <OfferTagIcon className="gh-portal-account-tagicon" />
+                        <span>{offerLabelStr}</span>
+                    </p>
+                );
+            }
+            return null;
+        };
+
+        const hasFreeTrial = subscriptionHasFreeTrial({sub: subscription});
+        if (hasFreeTrial) {
+            oldPriceClassName = 'gh-portal-account-old-price';
+        }
+        if (hasFreeTrial) {
+            return (
+                <>
+                    <p className={oldPriceClassName}>
+                        {label}
+                    </p>
+                    <FreeTrialLabel subscription={subscription} />
+                </>
+            );
+        }
+
         return (
-            <p>
-                {label}
-            </p>
+            <>
+                <p className={oldPriceClassName}>
+                    {label}
+                </p>
+                <OfferLabel />
+            </>
         );
     };
 
     const PlanUpdateButton = ({isComplimentary}) => {
-        if (isComplimentary || hasOnlyFreePlan({site})) {
+        const hideUpgrade = allowCompMemberUpgrade({member}) ? false : isComplimentary;
+        if (hideUpgrade || hasOnlyFreePlan({site})) {
             return null;
         }
         return (
@@ -216,16 +325,25 @@ const PaidAccountActions = () => {
     const isComplimentary = isComplimentaryMember({member});
     if (subscription || isComplimentary) {
         const {
-            plan,
             price,
             default_payment_card_last4: defaultCardLast4
         } = subscription || {};
+        let planLabel = 'Plan';
+
+        // Show name of tiers if there are multiple tiers
+        if (hasMultipleProductsFeature({site}) && getMemberTierName({member})) {
+            planLabel = getMemberTierName({member});
+        }
+        // const hasFreeTrial = subscriptionHasFreeTrial({sub: subscription});
+        // if (hasFreeTrial) {
+        //     planLabel += ' (Free Trial)';
+        // }
         return (
             <>
                 <section>
                     <div className='gh-portal-list-detail'>
-                        <h3>Plan</h3>
-                        <PlanLabel plan={plan} price={price} isComplimentary={isComplimentary} />
+                        <h3>{planLabel}</h3>
+                        <PlanLabel price={price} isComplimentary={isComplimentary} subscription={subscription} />
                     </div>
                     <PlanUpdateButton isComplimentary={isComplimentary} />
                 </section>
@@ -238,7 +356,7 @@ const PaidAccountActions = () => {
 
 const AccountActions = () => {
     const {member, onAction} = useContext(AppContext);
-    const {name, email, subscribed} = member;
+    const {name, email} = member;
 
     const openEditProfile = () => {
         onAction('switchPage', {
@@ -247,12 +365,6 @@ const AccountActions = () => {
         });
     };
 
-    const onToggleSubscription = (e, sub) => {
-        e.preventDefault();
-        onAction('updateNewsletter', {subscribed: !sub});
-    };
-
-    let label = subscribed ? 'Subscribed' : 'Unsubscribed';
     return (
         <div>
             <div className='gh-portal-list'>
@@ -265,23 +377,68 @@ const AccountActions = () => {
                 </section>
 
                 <PaidAccountActions />
-
-                <section>
-                    <div className='gh-portal-list-detail'>
-                        <h3>Email newsletter</h3>
-                        <p>{label}</p>
-                    </div>
-                    <div>
-                        <Switch onToggle={(e) => {
-                            onToggleSubscription(e, subscribed);
-                        }} checked={subscribed} />
-                    </div>
-                </section>
+                <EmailPreferencesAction />
+                <EmailNewsletterAction />
             </div>
             {/* <ProductList openUpdatePlan={openUpdatePlan}></ProductList> */}
         </div>
     );
 };
+
+function EmailNewsletterAction() {
+    const {member, site, onAction} = useContext(AppContext);
+    let {newsletters} = member;
+
+    if (hasMultipleNewsletters({site}) || hasCommentsEnabled({site})) {
+        return null;
+    }
+    const subscribed = !!newsletters?.length;
+    let label = subscribed ? 'Subscribed' : 'Unsubscribed';
+    const onToggleSubscription = (e, sub) => {
+        e.preventDefault();
+        const siteNewsletters = getSiteNewsletters({site});
+        const subscribedNewsletters = !member?.newsletters?.length ? siteNewsletters : [];
+        onAction('updateNewsletterPreference', {newsletters: subscribedNewsletters});
+    };
+
+    return (
+        <section>
+            <div className='gh-portal-list-detail'>
+                <h3>Email newsletter</h3>
+                <p>{label}</p>
+            </div>
+            <div>
+                <Switch
+                    id="default-newsletter-toggle"
+                    onToggle={(e) => {
+                        onToggleSubscription(e, subscribed);
+                    }} checked={subscribed}
+                />
+            </div>
+        </section>
+    );
+}
+
+function EmailPreferencesAction() {
+    const {site, onAction} = useContext(AppContext);
+    if (!hasMultipleNewsletters({site}) && !hasCommentsEnabled({site})) {
+        return null;
+    }
+    return (
+        <section>
+            <div className='gh-portal-list-detail'>
+                <h3>Emails</h3>
+                <p>Update your preferences</p>
+            </div>
+            <button className='gh-portal-btn gh-portal-btn-list' onClick={(e) => {
+                onAction('switchPage', {
+                    page: 'accountEmail',
+                    lastPage: 'accountHome'
+                });
+            }}>Manage</button>
+        </section>
+    );
+}
 
 const SubscribeButton = () => {
     const {site, action, brandColor, onAction} = useContext(AppContext);
@@ -313,7 +470,7 @@ const AccountWelcome = () => {
     const {member, site} = useContext(AppContext);
     const {is_stripe_configured: isStripeConfigured} = site;
 
-    if (!isStripeConfigured) {
+    if (!isStripeConfigured || hasOnlyFreePlan({site})) {
         return null;
     }
     const subscription = getMemberSubscription({member});
@@ -323,8 +480,26 @@ const AccountWelcome = () => {
     }
     if (subscription) {
         const currentPeriodEnd = subscription?.current_period_end;
+        if (isComplimentary && getCompExpiry({member})) {
+            const expiryDate = getCompExpiry({member});
+            const expiryAt = getDateString(expiryDate);
+            return (
+                <div className='gh-portal-section'>
+                    <p className='gh-portal-text-center gh-portal-free-ctatext'>Your subscription will expire on {expiryAt}</p>
+                </div>
+            );
+        }
         if (subscription?.cancel_at_period_end) {
             return null;
+        }
+
+        if (subscriptionHasFreeTrial({sub: subscription})) {
+            const trialEnd = getDateString(subscription.trial_end_at);
+            return (
+                <div className='gh-portal-section'>
+                    <p className='gh-portal-text-center gh-portal-free-ctatext'>Your subscription will start on {trialEnd}</p>
+                </div>
+            );
         }
         return (
             <div className='gh-portal-section'>
@@ -422,7 +597,7 @@ export default class AccountHomePage extends React.Component {
 
     render() {
         const {member, site} = this.context;
-        const {members_support_address: supportAddress} = site;
+        const supportAddress = getSupportAddress({site});
         if (!member) {
             return null;
         }

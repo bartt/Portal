@@ -1,5 +1,5 @@
 import React from 'react';
-import {generateAccountPlanFixture} from '../../utils/fixtures';
+import {generateAccountPlanFixture, getSiteData, getProductsData} from '../../utils/fixtures-generator';
 import {render, fireEvent} from '../../utils/test-utils';
 import AccountPlanPage from './AccountPlanPage';
 
@@ -12,13 +12,15 @@ const setup = (overrides) => {
             }
         }
     );
-    const monthlyCheckboxEl = utils.getByLabelText('Monthly');
-    const yearlyCheckboxEl = utils.getByLabelText('Yearly');
+    const monthlyCheckboxEl = utils.queryByRole('button', {name: 'Monthly'});
+    const yearlyCheckboxEl = utils.queryByRole('button', {name: 'Yearly'});
     const continueBtn = utils.queryByRole('button', {name: 'Continue'});
+    const chooseBtns = utils.queryAllByRole('button', {name: 'Choose'});
     return {
         monthlyCheckboxEl,
         yearlyCheckboxEl,
         continueBtn,
+        chooseBtns,
         mockOnActionFn,
         context,
         ...utils
@@ -44,23 +46,26 @@ const customSetup = (overrides) => {
 
 describe('Account Plan Page', () => {
     test('renders', () => {
-        const {monthlyCheckboxEl, yearlyCheckboxEl, continueBtn} = setup();
-
+        const {monthlyCheckboxEl, yearlyCheckboxEl, queryAllByRole} = setup();
+        const continueBtn = queryAllByRole('button', {name: 'Continue'});
         expect(monthlyCheckboxEl).toBeInTheDocument();
         expect(yearlyCheckboxEl).toBeInTheDocument();
-        expect(continueBtn).toBeInTheDocument();
+        expect(continueBtn).toHaveLength(1);
     });
 
     test('can choose plan and continue', async () => {
-        const {mockOnActionFn, monthlyCheckboxEl, yearlyCheckboxEl, continueBtn} = setup();
-        fireEvent.click(monthlyCheckboxEl);
-        expect(monthlyCheckboxEl.checked).toEqual(false);
-        fireEvent.click(yearlyCheckboxEl);
-        expect(yearlyCheckboxEl.checked).toEqual(true);
-        expect(continueBtn).toBeEnabled();
+        const siteData = getSiteData({
+            products: getProductsData({numOfProducts: 1})
+        });
+        const {mockOnActionFn, monthlyCheckboxEl, yearlyCheckboxEl, queryAllByRole} = setup({site: siteData});
+        const continueBtn = queryAllByRole('button', {name: 'Continue'});
 
-        fireEvent.click(continueBtn);
-        expect(mockOnActionFn).toHaveBeenCalledWith('checkoutPlan', {plan: '6085adc776909b1a2382369a'});
+        fireEvent.click(monthlyCheckboxEl);
+        expect(monthlyCheckboxEl.className).toEqual('gh-portal-btn active');
+        fireEvent.click(yearlyCheckboxEl);
+        expect(yearlyCheckboxEl.className).toEqual('gh-portal-btn active');
+        fireEvent.click(continueBtn[0]);
+        expect(mockOnActionFn).toHaveBeenCalledWith('checkoutPlan', {plan: siteData.products[0].yearlyPrice.id});
     });
 
     test('can cancel subscription for member on hidden tier', async () => {

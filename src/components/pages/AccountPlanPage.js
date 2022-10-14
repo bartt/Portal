@@ -3,18 +3,23 @@ import AppContext from '../../AppContext';
 import ActionButton from '../common/ActionButton';
 import CloseButton from '../common/CloseButton';
 import BackButton from '../common/BackButton';
-import PlansSection, {MultipleProductsPlansSection, SingleProductPlansSection} from '../common/PlansSection';
+import {MultipleProductsPlansSection} from '../common/PlansSection';
 import {getDateString} from '../../utils/date-time';
-import {formatNumber, getAvailablePrices, getFilteredPrices, getMemberActivePrice, getMemberSubscription, getPriceFromSubscription, getProductFromPrice, getSubscriptionFromId, getUpgradeProducts, hasMultipleProducts, hasMultipleProductsFeature, isPaidMember} from '../../utils/helpers';
+import {allowCompMemberUpgrade, formatNumber, getAvailablePrices, getFilteredPrices, getMemberActivePrice, getMemberSubscription, getPriceFromSubscription, getProductFromPrice, getSubscriptionFromId, getUpgradeProducts, hasMultipleProductsFeature, isComplimentaryMember, isPaidMember} from '../../utils/helpers';
 
 export const AccountPlanPageStyles = `
+    .account-plan.full-size .gh-portal-main-title {
+        font-size: 3.2rem;
+        margin-top: 44px;
+    }
+
     .gh-portal-accountplans-main {
         margin-top: 24px;
         margin-bottom: 0;
     }
 
     .gh-portal-expire-container {
-        margin: 24px 0 0;
+        margin: 32px 0 0;
     }
 
     .gh-portal-cancellation-form p {
@@ -46,14 +51,13 @@ function getConfirmationPageTitle({confirmationType}) {
 }
 
 const Header = ({onBack, showConfirmation, confirmationType}) => {
-    const {member, brandColor, lastPage} = useContext(AppContext);
+    const {member} = useContext(AppContext);
     let title = isPaidMember({member}) ? 'Change plan' : 'Choose a plan';
     if (showConfirmation) {
         title = getConfirmationPageTitle({confirmationType});
     }
     return (
         <header className='gh-portal-detail-header'>
-            <BackButton brandColor={brandColor} onClick={e => onBack(e)} hidden={!lastPage && !showConfirmation} />
             <h3 className='gh-portal-main-title'>{title}</h3>
         </header>
     );
@@ -121,8 +125,8 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
     const priceLabel = hasMultipleProductsFeature({site}) ? product?.name : 'Price';
     if (type === 'changePlan') {
         return (
-            <>
-                <div className='gh-portal-list outline mb6'>
+            <div className='gh-portal-logged-out-form-container'>
+                <div className='gh-portal-list mb6'>
                     <section>
                         <div className='gh-portal-list-detail'>
                             <h3>Account</h3>
@@ -147,11 +151,11 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
                         height: '40px'
                     }}
                 />
-            </>
+            </div>
         );
     } else {
         return (
-            <div className="gh-portal-cancellation-form">
+            <div className="gh-portal-logged-out-form-container gh-portal-cancellation-form">
                 <p>If you cancel your subscription now, you will continue to have access until <strong>{getDateString(subscription.current_period_end)}</strong>.</p>
                 <section className='gh-portal-input-section'>
                     <div className='gh-portal-input-labelcontainer'>
@@ -167,7 +171,7 @@ const PlanConfirmationSection = ({plan, type, onConfirm}) => {
                         value={reason}
                         onChange={e => setReason(e.target.value)}
                         rows="2"
-                        maxlength="500"
+                        maxLength="500"
                     />
                 </section>
                 <ActionButton
@@ -205,46 +209,16 @@ const ChangePlanSection = ({plans, selectedPlan, onPlanSelect, onCancelSubscript
     );
 };
 
-function PlansOrProductSection({showLabel, plans, selectedPlan, onPlanSelect, changePlan = false}) {
+function PlansOrProductSection({showLabel, plans, selectedPlan, onPlanSelect, onPlanCheckout, changePlan = false}) {
     const {site, member} = useContext(AppContext);
     const products = getUpgradeProducts({site, member});
-    if (hasMultipleProductsFeature({site})) {
-        if (changePlan === true) {
-            return (
-                <MultipleProductsPlansSection
-                    products={products}
-                    selectedPlan={selectedPlan}
-                    changePlan={true}
-                    onPlanSelect={onPlanSelect}
-                />
-            );
-        } else if (hasMultipleProducts({site})) {
-            return (
-                <MultipleProductsPlansSection
-                    products={products}
-                    selectedPlan={selectedPlan}
-                    changePlan={changePlan}
-                    onPlanSelect={onPlanSelect}
-                />
-            );
-        } else {
-            return (
-                <SingleProductPlansSection
-                    product={products?.[0]}
-                    plans={plans}
-                    selectedPlan={selectedPlan}
-                    onPlanSelect={onPlanSelect}
-                />
-            );
-        }
-    }
     return (
-        <PlansSection
-            showLabel={showLabel}
-            plans={plans}
+        <MultipleProductsPlansSection
+            products={products}
             selectedPlan={selectedPlan}
             changePlan={changePlan}
             onPlanSelect={onPlanSelect}
+            onPlanCheckout={onPlanCheckout}
         />
     );
 }
@@ -253,8 +227,8 @@ function PlansOrProductSection({showLabel, plans, selectedPlan, onPlanSelect, ch
 const UpgradePlanSection = ({
     plans, selectedPlan, onPlanSelect, onPlanCheckout
 }) => {
-    const {action, brandColor} = useContext(AppContext);
-    const isRunning = ['checkoutPlan:running'].includes(action);
+    // const {action, brandColor} = useContext(AppContext);
+    // const isRunning = ['checkoutPlan:running'].includes(action);
     let singlePlanClass = '';
     if (plans.length === 1) {
         singlePlanClass = 'singleplan';
@@ -267,16 +241,17 @@ const UpgradePlanSection = ({
                     plans={plans}
                     selectedPlan={selectedPlan}
                     onPlanSelect={onPlanSelect}
+                    onPlanCheckout={onPlanCheckout}
                 />
             </div>
-            <ActionButton
+            {/* <ActionButton
                 onClick={e => onPlanCheckout(e)}
                 isRunning={isRunning}
                 isPrimary={true}
                 brandColor={brandColor}
                 label={'Continue'}
                 style={{height: '40px', width: '100%', marginTop: '24px'}}
-            />
+            /> */}
         </section>
     );
 };
@@ -287,7 +262,8 @@ const PlansContainer = ({
 }) => {
     const {member} = useContext(AppContext);
     // Plan upgrade flow for free member
-    if (!isPaidMember({member})) {
+    const allowUpgrade = allowCompMemberUpgrade({member}) && isComplimentaryMember({member});
+    if (!isPaidMember({member}) || allowUpgrade) {
         return (
             <UpgradePlanSection
                 {...{plans, selectedPlan, onPlanSelect, onPlanCheckout}}
@@ -381,8 +357,13 @@ export default class AccountPlanPage extends React.Component {
 
     onPlanCheckout(e, priceId) {
         const {onAction, member} = this.context;
-        const {confirmationPlan, selectedPlan} = this.state;
-        if (isPaidMember({member})) {
+        let {confirmationPlan, selectedPlan} = this.state;
+        if (priceId) {
+            selectedPlan = priceId;
+        }
+
+        const restrictCheckout = allowCompMemberUpgrade({member}) ? !isComplimentaryMember({member}) : true;
+        if (isPaidMember({member}) && restrictCheckout) {
             const subscription = getMemberSubscription({member});
             const subscriptionId = subscription ? subscription.id : '';
             if (subscriptionId) {
@@ -398,11 +379,12 @@ export default class AccountPlanPage extends React.Component {
 
         const {member} = this.context;
 
+        const allowCompMember = allowCompMemberUpgrade({member}) ? isComplimentaryMember({member}) : false;
         // Work as checkboxes for free member plan selection and button for paid members
-        if (!isPaidMember({member})) {
+        if (!isPaidMember({member}) || allowCompMember) {
             // Hack: React checkbox gets out of sync with dom state with instant update
             this.timeoutId = setTimeout(() => {
-                this.setState((state) => {
+                this.setState(() => {
                     return {
                         selectedPlan: priceId
                     };
@@ -420,7 +402,7 @@ export default class AccountPlanPage extends React.Component {
                 });
             }
         }
-    }
+    };
 
     onCancelSubscription({subscriptionId, cancelAtPeriodEnd}) {
         const {member} = this.context;
@@ -459,16 +441,18 @@ export default class AccountPlanPage extends React.Component {
         if (confirmationType === 'cancel') {
             return this.onCancelSubscriptionConfirmation(data);
         } else if (['changePlan', 'subscribe'].includes(confirmationType)) {
-            return this.onPlanCheckout(data);
+            return this.onPlanCheckout();
         }
     }
 
     render() {
         const plans = this.prices;
         const {selectedPlan, showConfirmation, confirmationPlan, confirmationType} = this.state;
+        const {lastPage} = this.context;
         return (
             <>
                 <div className='gh-portal-content'>
+                    <BackButton onClick={e => this.onBack(e)} hidden={!lastPage && !showConfirmation} />
                     <CloseButton />
                     <Header
                         onBack={e => this.onBack(e)}

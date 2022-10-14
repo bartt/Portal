@@ -9,6 +9,7 @@ import {ReactComponent as ButtonIcon4} from '../images/icons/button-icon-4.svg';
 import {ReactComponent as ButtonIcon5} from '../images/icons/button-icon-5.svg';
 import TriggerButtonStyle from './TriggerButton.styles';
 import {isInviteOnlySite} from '../utils/helpers';
+import {hasMode} from '../utils/check-mode';
 
 const React = require('react');
 
@@ -22,7 +23,8 @@ const ICON_MAPPING = {
 
 const Styles = ({brandColor, hasText}) => {
     const frame = {
-        ...(!hasText ? {width: '105px'} : {})
+        ...(!hasText ? {width: '105px'} : {}),
+        ...(hasMode(['preview']) ? {opacity: 1} : {})
     };
     return {
         frame: {
@@ -36,7 +38,6 @@ const Styles = ({brandColor, hasText}) => {
             animation: '250ms ease 0s 1 normal none running animation-bhegco',
             transition: 'opacity 0.3s ease 0s',
             overflow: 'hidden',
-            opacity: 1,
             ...frame
         },
         userIcon: {
@@ -106,7 +107,7 @@ class TriggerButtonContent extends React.Component {
         const Style = Styles({brandColor: this.context.brandColor});
         const memberGravatar = this.context.member && this.context.member.avatar_image;
 
-        if (!buttonStyle.includes('icon')) {
+        if (!buttonStyle.includes('icon') && !this.context.member) {
             return null;
         }
 
@@ -235,7 +236,7 @@ export default class TriggerButton extends React.Component {
         const {portal_button: portalButton} = this.context.site;
         const {showPopup} = this.context;
 
-        if (!portalButton) {
+        if (!portalButton || hasMode(['offerPreview'])) {
             return null;
         }
 

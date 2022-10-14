@@ -5,7 +5,10 @@ import MagicLinkPage from './components/pages/MagicLinkPage';
 import LoadingPage from './components/pages/LoadingPage';
 import AccountPlanPage from './components/pages/AccountPlanPage';
 import AccountProfilePage from './components/pages/AccountProfilePage';
-import LinkPage from './components/pages/LinkPage';
+import AccountEmailPage from './components/pages/AccountEmailPage';
+import OfferPage from './components/pages/OfferPage';
+import NewsletterSelectionPage from './components/pages/NewsletterSelectionPage';
+import UnsubscribePage from './components/pages/UnsubscribePage';
 
 /** List of all available pages in Portal, mapped to their UI component
  * Any new page added to portal needs to be mapped here
@@ -16,9 +19,12 @@ const Pages = {
     accountHome: AccountHomePage,
     accountPlan: AccountPlanPage,
     accountProfile: AccountProfilePage,
+    accountEmail: AccountEmailPage,
+    signupNewsletter: NewsletterSelectionPage,
+    unsubscribe: UnsubscribePage,
     magiclink: MagicLinkPage,
     loading: LoadingPage,
-    links: LinkPage
+    offer: OfferPage
 };
 
 /** Return page if valid, fallback to signup */
@@ -31,6 +37,10 @@ export const getActivePage = function ({page}) {
 
 export const isAccountPage = function ({page}) {
     return page.includes('account');
+};
+
+export const isOfferPage = function ({page}) {
+    return page.includes('offer');
 };
 
 export default Pages;

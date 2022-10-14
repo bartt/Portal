@@ -5,21 +5,23 @@ import PopupModal from './components/PopupModal';
 import setupGhostApi from './utils/api';
 import AppContext from './AppContext';
 import {hasMode} from './utils/check-mode';
-import {getActivePage, isAccountPage} from './pages';
 import * as Fixtures from './utils/fixtures';
+import {getActivePage, isAccountPage, isOfferPage} from './pages';
 import ActionHandler from './actions';
 import './App.css';
 import NotificationParser from './utils/notifications';
-import {createPopupNotification, getAvailablePrices, getCurrencySymbol, getFirstpromoterId, getProductFromId, getQueryPrice, getSiteDomain, isComplimentaryMember, isInviteOnlySite, isSentryEventAllowed, removePortalLinkFromUrl} from './utils/helpers';
+import {allowCompMemberUpgrade, createPopupNotification, getCurrencySymbol, getFirstpromoterId, getPriceIdFromPageQuery, getProductCadenceFromPrice, getProductFromId, getQueryPrice, getSiteDomain, isActiveOffer, isComplimentaryMember, isInviteOnlySite, isPaidMember, isSentryEventAllowed, removePortalLinkFromUrl} from './utils/helpers';
+import {handleDataAttributes} from './data-attributes';
 
-const handleDataAttributes = require('./data-attributes');
 const React = require('react');
 
 const DEV_MODE_DATA = {
     showPopup: true,
     site: Fixtures.site,
-    member: Fixtures.member.paid,
-    page: 'signup'
+    member: Fixtures.member.free,
+    page: 'accountEmail',
+    ...Fixtures.paidMemberOnTier(),
+    pageData: Fixtures.offer
 };
 
 function SentryErrorBoundary({site, children}) {
@@ -42,13 +44,9 @@ export default class App extends React.Component {
     constructor(props) {
         super(props);
 
-        if (!props.testState) {
-            // Setup custom trigger button handling
-            this.setupCustomTriggerButton();
-        }
+        this.setupCustomTriggerButton(props);
 
-        // testState is used by App.test to pass custom default state for testing
-        this.state = props.testState || {
+        this.state = {
             site: null,
             member: null,
             page: 'loading',
@@ -61,16 +59,27 @@ export default class App extends React.Component {
     }
 
     componentDidMount() {
-        /** Ignores API init when in test mode */
-        if (!this.props.testState) {
-            this.initSetup();
-        }
+        this.initSetup();
     }
 
     componentDidUpdate(prevProps, prevState) {
         /**Handle custom trigger class change on popup open state change */
         if (prevState.showPopup !== this.state.showPopup) {
             this.handleCustomTriggerClassUpdate();
+
+            /** Remove background scroll when popup is opened */
+            try {
+                if (this.state.showPopup) {
+                    /** When modal is opened, store current overflow and set as hidden */
+                    this.bodyScroll = window.document?.body?.style?.overflow;
+                    window.document.body.style.overflow = 'hidden';
+                } else {
+                    /** When the modal is hidden, reset overflow property for body */
+                    window.document.body.style.overflow = this.bodyScroll || '';
+                }
+            } catch (e) {
+                /** Ignore any errors for scroll handling */
+            }
         }
 
         if (this.state.initStatus === 'success' && prevState.initStatus !== this.state.initStatus) {
@@ -91,6 +100,7 @@ export default class App extends React.Component {
         this.customTriggerButtons && this.customTriggerButtons.forEach((customTriggerButton) => {
             customTriggerButton.removeEventListener('click', this.clickHandler);
         });
+        window.removeEventListener('hashchange', this.hashHandler, false);
     }
 
     sendPortalReadyEvent() {
@@ -133,7 +143,7 @@ export default class App extends React.Component {
     handleCustomTriggerClassUpdate() {
         const popupOpenClass = 'gh-portal-open';
         const popupCloseClass = 'gh-portal-close';
-        this.customTriggerButtons.forEach((customButton) => {
+        this.customTriggerButtons?.forEach((customButton) => {
             const elAddClass = this.state.showPopup ? popupOpenClass : popupCloseClass;
             const elRemoveClass = this.state.showPopup ? popupCloseClass : popupOpenClass;
             customButton.classList.add(elAddClass);
@@ -145,7 +155,7 @@ export default class App extends React.Component {
     async initSetup() {
         try {
             // Fetch data from API, links, preview, dev sources
-            const {site, member, page, showPopup, popupNotification, lastPage, pageQuery} = await this.fetchData();
+            const {site, member, page, showPopup, popupNotification, lastPage, pageQuery, pageData} = await this.fetchData();
             const state = {
                 site,
                 member,
@@ -153,11 +163,13 @@ export default class App extends React.Component {
                 lastPage,
                 pageQuery,
                 showPopup,
+                pageData,
                 popupNotification,
                 action: 'init:success',
                 initStatus: 'success'
             };
-            this.handleSignupQuery({site, pageQuery});
+
+            this.handleSignupQuery({site, pageQuery, member});
 
             this.setState(state);
 
@@ -185,7 +197,6 @@ export default class App extends React.Component {
         const {site: previewSiteData, ...restPreviewData} = this.fetchPreviewData();
         const {site: notificationSiteData, ...restNotificationData} = this.fetchNotificationData();
         let page = '';
-
         return {
             member,
             page,
@@ -214,7 +225,56 @@ export default class App extends React.Component {
         if (hasMode(['dev']) && !this.state.customSiteUrl) {
             return DEV_MODE_DATA;
         }
+
+        // Setup test mode data
+        if (hasMode(['test'])) {
+            return {
+                showPopup: this.props.showPopup !== undefined ? this.props.showPopup : true
+            };
+        }
         return {};
+    }
+
+    /**Fetch state from Offer Preview mode query string*/
+    fetchOfferQueryStrData(qs = '') {
+        const qsParams = new URLSearchParams(qs);
+        const data = {};
+        // Handle the query params key/value pairs
+        for (let pair of qsParams.entries()) {
+            const key = pair[0];
+            const value = decodeURIComponent(pair[1]);
+            if (key === 'name') {
+                data.name = value || '';
+            } else if (key === 'code') {
+                data.code = value || '';
+            } else if (key === 'display_title') {
+                data.display_title = value || '';
+            } else if (key === 'display_description') {
+                data.display_description = value || '';
+            } else if (key === 'type') {
+                data.type = value || '';
+            } else if (key === 'cadence') {
+                data.cadence = value || '';
+            } else if (key === 'duration') {
+                data.duration = value || '';
+            } else if (key === 'duration_in_months' && !isNaN(Number(value))) {
+                data.duration_in_months = Number(value);
+            } else if (key === 'amount' && !isNaN(Number(value))) {
+                data.amount = Number(value);
+            } else if (key === 'currency') {
+                data.currency = value || '';
+            } else if (key === 'status') {
+                data.status = value || '';
+            } else if (key === 'tier_id') {
+                data.tier = {
+                    id: value || Fixtures.offer.tier.id
+                };
+            }
+        }
+        return {
+            page: 'offer',
+            pageData: data
+        };
     }
 
     /** Fetch state from Preview mode Query String */
@@ -333,8 +393,20 @@ export default class App extends React.Component {
 
     /** Fetch state from Portal Links */
     fetchLinkData() {
+        const qParams = new URLSearchParams(window.location.search);
+        if (qParams.get('uuid') && qParams.get('action') === 'unsubscribe') {
+            return {
+                showPopup: true,
+                page: 'unsubscribe',
+                pageData: {
+                    uuid: qParams.get('uuid'),
+                    newsletterUuid: qParams.get('newsletter'),
+                    comments: qParams.get('comments')
+                }
+            };
+        }
         const productMonthlyPriceQueryRegex = /^(?:(\w+?))?\/monthly$/;
-        const productYearlyPriceQueryRegex = /^(?:(\w+?))?\/monthly$/;
+        const productYearlyPriceQueryRegex = /^(?:(\w+?))?\/yearly$/;
         const offersRegex = /^offers\/(\w+?)\/?$/;
         const [path] = window.location.hash.substr(1).split('?');
         const linkRegex = /^\/portal\/?(?:\/(\w+(?:\/\w+)*))?\/?$/;
@@ -362,9 +434,16 @@ export default class App extends React.Component {
     fetchPreviewData() {
         const [, qs] = window.location.hash.substr(1).split('?');
         if (hasMode(['preview'])) {
-            const data = this.fetchQueryStrData(qs);
-            data.showPopup = true;
-            return data;
+            let data = {};
+            if (hasMode(['offerPreview'])) {
+                data = this.fetchOfferQueryStrData(qs);
+            } else {
+                data = this.fetchQueryStrData(qs);
+            }
+            return {
+                ...data,
+                showPopup: true
+            };
         }
         return {};
     }
@@ -380,9 +459,10 @@ export default class App extends React.Component {
 
     /** Fetch site and member session data with Ghost Apis  */
     async fetchApiData() {
-        const {siteUrl, customSiteUrl} = this.props;
+        const {siteUrl, customSiteUrl, apiUrl, apiKey} = this.props;
+
         try {
-            this.GhostApi = setupGhostApi({siteUrl});
+            this.GhostApi = this.props.api || setupGhostApi({siteUrl, apiUrl, apiKey});
             const {site, member} = await this.GhostApi.init();
 
             const colorOverride = this.getColorOverride();
@@ -397,12 +477,16 @@ export default class App extends React.Component {
             if (hasMode(['dev', 'test'], {customSiteUrl})) {
                 return {};
             }
+
             throw e;
         }
     }
 
     /** Setup Sentry */
     setupSentry({site}) {
+        if (hasMode(['test'])) {
+            return null;
+        }
         const {portal_sentry: portalSentry, portal_version: portalVersion, version: ghostVersion} = site;
         const appVersion = process.env.REACT_APP_VERSION || portalVersion;
         const releaseTag = `portal@${appVersion}|ghost@${ghostVersion}`;
@@ -426,6 +510,9 @@ export default class App extends React.Component {
 
     /** Setup Firstpromoter script */
     setupFirstPromoter({site, member}) {
+        if (hasMode(['test'])) {
+            return null;
+        }
         const firstPromoterId = getFirstpromoterId({site});
         const siteDomain = getSiteDomain({site});
         if (firstPromoterId && siteDomain) {
@@ -517,43 +604,66 @@ export default class App extends React.Component {
         this.setState(updatedState);
     }
 
-    handleOfferQuery({site, offerId}) {
+    /** Handle Portal offer urls */
+    async handleOfferQuery({site, offerId, member = this.state.member}) {
+        const {portal_button: portalButton} = site;
         removePortalLinkFromUrl();
-        const prices = getAvailablePrices({site});
-        const priceId = prices?.[0]?.id;
-        if (this.state.member) {
-            this.dispatchAction('checkoutPlan', {plan: priceId, offerId});
-        } else {
-            this.dispatchAction('signup', {plan: priceId, offerId});
+        if (!isPaidMember({member})) {
+            try {
+                const offerData = await this.GhostApi.site.offer({offerId});
+                const offer = offerData?.offers[0];
+                if (isActiveOffer({offer})) {
+                    if (!portalButton) {
+                        const product = getProductFromId({site, productId: offer.tier.id});
+                        const price = offer.cadence === 'month' ? product.monthlyPrice : product.yearlyPrice;
+                        this.dispatchAction('openPopup', {
+                            page: 'loading'
+                        });
+                        if (member) {
+                            const {tierId, cadence} = getProductCadenceFromPrice({site, priceId: price.id});
+                            this.dispatchAction('checkoutPlan', {plan: price.id, offerId, tierId, cadence});
+                        } else {
+                            const {tierId, cadence} = getProductCadenceFromPrice({site, priceId: price.id});
+                            this.dispatchAction('signup', {plan: price.id, offerId, tierId, cadence});
+                        }
+                    } else {
+                        this.dispatchAction('openPopup', {
+                            page: 'offer',
+                            pageData: offerData?.offers[0]
+                        });
+                    }
+                }
+            } catch (e) {
+                // ignore invalid portal url
+            }
         }
     }
 
     /** Handle direct signup link for a price */
-    handleSignupQuery({site, pageQuery}) {
-        const productMonthlyPriceQueryRegex = /^(?:(\w+?))?\/monthly$/;
-        const productYearlyPriceQueryRegex = /^(?:(\w+?))?\/monthly$/;
+    handleSignupQuery({site, pageQuery, member}) {
         const offerQueryRegex = /^offers\/(\w+?)\/?$/;
         let priceId = pageQuery;
         if (offerQueryRegex.test(pageQuery || '')) {
             const [, offerId] = pageQuery.match(offerQueryRegex);
-            this.handleOfferQuery({site, offerId});
+            this.handleOfferQuery({site, offerId, member});
             return;
-        } else if (productMonthlyPriceQueryRegex.test(pageQuery || '')) {
-            const [, productId] = pageQuery.match(productMonthlyPriceQueryRegex);
-            const product = getProductFromId({site, productId});
-            priceId = product?.monthlyPrice?.id;
-        } else if (productYearlyPriceQueryRegex.test(pageQuery || '')) {
-            const [, productId] = pageQuery.match(productYearlyPriceQueryRegex);
-            const product = getProductFromId({site, productId});
-            priceId = product?.yearlyPrice?.id;
+        }
+        if (getPriceIdFromPageQuery({site, pageQuery})) {
+            priceId = getPriceIdFromPageQuery({site, pageQuery});
         }
         const queryPrice = getQueryPrice({site: site, priceId});
-        if (!this.state.member
-            && pageQuery
+        if (pageQuery
             && pageQuery !== 'free'
         ) {
             removePortalLinkFromUrl();
-            this.dispatchAction('signup', {plan: queryPrice?.id || priceId});
+            const plan = queryPrice?.id || priceId;
+            if (plan !== 'free') {
+                this.dispatchAction('openPopup', {
+                    page: 'loading'
+                });
+            }
+            const {tierId, cadence} = getProductCadenceFromPrice({site, priceId: plan});
+            this.dispatchAction('signup', {plan, tierId, cadence});
         }
     }
 
@@ -620,6 +730,10 @@ export default class App extends React.Component {
             return {
                 page: 'accountProfile'
             };
+        } else if (path === 'account/newsletters') {
+            return {
+                page: 'accountEmail'
+            };
         }
         return {};
     }
@@ -638,7 +752,7 @@ export default class App extends React.Component {
             page = member ? 'accountHome' : loggedOutPage;
         }
 
-        if (page === 'accountPlan' && isComplimentaryMember({member})) {
+        if (page === 'accountPlan' && isComplimentaryMember({member}) && !allowCompMemberUpgrade({member})) {
             page = 'accountHome';
         }
 
@@ -649,7 +763,7 @@ export default class App extends React.Component {
     getContextMember({page, member, customSiteUrl}) {
         if (hasMode(['dev', 'preview'], {customSiteUrl})) {
             /** Use dummy member(free or paid) for account pages in dev/preview mode*/
-            if (isAccountPage({page})) {
+            if (isAccountPage({page}) || isOfferPage({page})) {
                 if (hasMode(['dev'], {customSiteUrl})) {
                     return member || Fixtures.member.free;
                 } else if (hasMode(['preview'])) {
@@ -667,7 +781,7 @@ export default class App extends React.Component {
 
     /**Get final App level context from App state*/
     getContextFromState() {
-        const {site, member, action, page, lastPage, showPopup, pageQuery, popupNotification, customSiteUrl} = this.state;
+        const {site, member, action, page, lastPage, showPopup, pageQuery, pageData, popupNotification, customSiteUrl} = this.state;
         const contextPage = this.getContextPage({site, page, member});
         const contextMember = this.getContextMember({page: contextPage, member, customSiteUrl});
         return {
@@ -676,6 +790,7 @@ export default class App extends React.Component {
             brandColor: this.getAccentColor(),
             page: contextPage,
             pageQuery,
+            pageData,
             member: contextMember,
             lastPage,
             showPopup,

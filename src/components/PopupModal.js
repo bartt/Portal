@@ -4,7 +4,7 @@ import AppContext from '../AppContext';
 import {getFrameStyles} from './Frame.styles';
 import Pages, {getActivePage} from '../pages';
 import PopupNotification from './common/PopupNotification';
-import {hasMultipleProducts, isCookiesDisabled, getSitePrices, isInviteOnlySite} from '../utils/helpers';
+import {getSiteProducts, isInviteOnlySite, isCookiesDisabled, hasFreeProductPrice} from '../utils/helpers';
 
 const React = require('react');
 
@@ -57,15 +57,23 @@ class PopupContent extends React.Component {
         if (this.node && !hasMode(['preview'])) {
             this.node.focus();
             this.keyUphandler = (event) => {
-                const eventTargetTag = (event.target && event.target.tagName);
-                if (event.key === 'Escape' && eventTargetTag !== 'INPUT') {
-                    this.context.onAction('closePopup');
+                if (event.key === 'Escape') {
+                    this.dismissPopup(event);
                 }
             };
             this.node.ownerDocument.removeEventListener('keyup', this.keyUphandler);
             this.node.ownerDocument.addEventListener('keyup', this.keyUphandler);
         }
         this.sendContainerHeightChangeEvent();
+    }
+
+    dismissPopup(event) {
+        const eventTargetTag = (event.target && event.target.tagName);
+        // If focused on input field, only allow close if no value entered
+        const allowClose = eventTargetTag !== 'INPUT' || (eventTargetTag === 'INPUT' && !event?.target?.value);
+        if (allowClose) {
+            this.context.onAction('closePopup');
+        }
     }
 
     sendContainerHeightChangeEvent() {
@@ -125,8 +133,9 @@ class PopupContent extends React.Component {
     }
 
     render() {
-        const {page, site, pageQuery, customSiteUrl} = this.context;
-        const {is_stripe_configured: isStripeConfigured} = site;
+        const {page, pageQuery, site, customSiteUrl} = this.context;
+        const products = getSiteProducts({site});
+        const noOfProducts = products.length;
 
         getActivePage({page});
         const Styles = StylesWrapper({page});
@@ -134,17 +143,8 @@ class PopupContent extends React.Component {
             ...Styles.page[page]
         };
         let popupWidthStyle = '';
+        let popupSize = 'regular';
 
-        const portalPlans = getSitePrices({site, pageQuery});
-
-        if (page === 'signup' || page === 'signin') {
-            if (!isInviteOnlySite({site, pageQuery}) && portalPlans.length === 3 && (page === 'signup' || page === 'signin')) {
-                popupWidthStyle = ' gh-portal-container-wide';
-            }
-            if (portalPlans.length <= 1 || !isStripeConfigured) {
-                popupWidthStyle = 'gh-portal-container-narrow';
-            }
-        }
         let cookieBannerText = '';
         let pageClass = page;
         switch (page) {
@@ -169,8 +169,19 @@ class PopupContent extends React.Component {
             break;
         }
 
-        if (hasMultipleProducts({site}) && (page === 'signup' || page === 'signin')) {
-            pageClass += ' multiple-products';
+        if (noOfProducts > 1 && !isInviteOnlySite({site, pageQuery})) {
+            if (page === 'signup') {
+                pageClass += ' full-size';
+                popupSize = 'full';
+            }
+        }
+
+        const freeProduct = hasFreeProductPrice({site});
+        if ((freeProduct && noOfProducts > 2) || (!freeProduct && noOfProducts > 1)) {
+            if (page === 'accountPlan') {
+                pageClass += ' full-size';
+                popupSize = 'full';
+            }
         }
 
         let className = 'gh-portal-popup-container';
@@ -189,13 +200,15 @@ class PopupContent extends React.Component {
 
         const containerClassName = `${className} ${popupWidthStyle} ${pageClass}`;
         return (
-            <div className={'gh-portal-popup-wrapper ' + pageClass} onClick={e => this.handlePopupClose(e)}>
-                <div className={containerClassName} style={pageStyle} ref={node => (this.node = node)} tabIndex={-1}>
-                    <CookieDisabledBanner message={cookieBannerText} />
-                    {this.renderPopupNotification()}
-                    {this.renderActivePage()}
+            <>
+                <div className={'gh-portal-popup-wrapper ' + pageClass} onClick={e => this.handlePopupClose(e)}>
+                    <div className={containerClassName} style={pageStyle} ref={node => (this.node = node)} tabIndex={-1}>
+                        <CookieDisabledBanner message={cookieBannerText} />
+                        {this.renderPopupNotification()}
+                        {this.renderActivePage()}
+                    </div>
                 </div>
-            </div>
+            </>
         );
     }
 }
@@ -238,7 +251,10 @@ export default class PopupModal extends React.Component {
             }
         ` + FrameStyle;
         return (
-            <style dangerouslySetInnerHTML={{__html: styles}} />
+            <>
+                <style dangerouslySetInnerHTML={{__html: styles}} />
+                <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+            </>
         );
     }
 
